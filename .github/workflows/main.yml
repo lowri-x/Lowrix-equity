@@ -1,0 +1,23 @@
+name: Equity Swing Scanner
+
+on:
+  schedule:
+    # ਇਹ ਰੋਜ਼ ਸ਼ਾਮ 4:00 ਵਜੇ IST (10:30 UTC) 'ਤੇ ਚੱਲੇਗਾ (ਸੋਮਵਾਰ ਤੋਂ ਸ਼ੁੱਕਰਵਾਰ)
+    - cron: '30 10 * * 1-5'
+  workflow_dispatch: # ਟੈਸਟ ਲਈ
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install dependencies
+        run: pip install requests pandas
+      - name: Run Equity Scanner
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+        run: python equity_bot.py
