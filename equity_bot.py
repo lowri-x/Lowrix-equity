@@ -1,146 +1,179 @@
-import urllib.request
-import json
-import ssl
-import time
-import pandas as pd
-from datetime import datetime, timedelta, timezone
 import os
+import sys
+import logging
+import requests
+import io
+import pandas as pd
+import numpy as np
+import yfinance as yf
+import json
+import urllib.request
+import ssl
 
-# ==================== ਟੈਲੀਗਰਾਮ ====================
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-CHAT_ID = os.environ.get("CHAT_ID")
+# ==================== ਲੌਗਿੰਗ ====================
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger("LowriX")
 
-# Nifty 50 ਦੇ ਕੁਝ ਮੁੱਖ ਸਟਾਕਸ (ਤੁਸੀਂ ਇਹਨਾਂ ਨੂੰ ਵਧਾ ਵੀ ਸਕਦੇ ਹੋ)
-NIFTY_50_TICKERS = [
-    "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "ICICIBANK.NS", "INFY.NS",
-    "SBIN.NS", "BHARTIARTL.NS", "ITC.NS", "LT.NS", "KOTAKBANK.NS",
-    "AXISBANK.NS", "TATAMOTORS.NS", "TATASTEEL.NS", "JSWSTEEL.NS", "M&M.NS",
-    "SUNPHARMA.NS", "NTPC.NS", "POWERGRID.NS", "TITAN.NS", "BAJFINANCE.NS"
-]
+# ==================== ਸੈਟਿੰਗਜ਼ ====================
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
+CAPITAL = 10000 
+RISK_PER_TRADE = 50 
 
 def send_telegram(text):
-    if not BOT_TOKEN or not CHAT_ID: return
+    if not BOT_TOKEN or not CHAT_ID: 
+        print("Telegram Token Missing")
+        return
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     data = json.dumps({"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"}).encode('utf-8')
     req = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json'})
     ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
-    try:
-        urllib.request.urlopen(req, context=ctx, timeout=10)
-    except Exception as e:
-        print(f"Telegram Error: {e}")
+    try: urllib.request.urlopen(req, context=ctx, timeout=10)
+    except Exception as e: logger.error(f"Telegram Error: {e}")
 
-# ==================== ਡੇਟਾ ਫੈਚਿੰਗ ====================
-def fetch_daily_data(ticker):
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range=1y"
-    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-    ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
+# ==================== Nifty 100 ਲਿਸਟ ====================
+def get_nifty100_tickers():
+    url = "https://archives.nseindia.com/content/indices/ind_nifty100list.csv"
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
     try:
-        with urllib.request.urlopen(req, context=ctx, timeout=10) as response:
-            data = json.loads(response.read().decode('utf-8'))
-            result = data['chart']['result'][0]
-            quotes = result['indicators']['quote'][0]
-            
-            df = pd.DataFrame({
-                'high': quotes['high'],
-                'low': quotes['low'],
-                'close': quotes['close'],
-                'volume': quotes['volume']
-            }).dropna()
-            return df
+        response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status()
+        df = pd.read_csv(io.StringIO(response.text))
+        tickers = [f"{symbol.strip()}.NS" for symbol in df["Symbol"].dropna().unique()]
+        return sorted(tickers)
     except Exception as e:
-        return None
+        logger.warning(f"NSE ਲਿਸਟ ਫੇਲ, ਬੈਕਅੱਪ ਵਰਤ ਰਹੇ ਹਾਂ: {e}")
+        return ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "ICICIBANK.NS", "INFY.NS",
+                "BHARTIARTL.NS", "ITC.NS", "SBIN.NS", "LICI.NS", "LT.NS",
+                "HINDUNILVR.NS", "BAJFINANCE.NS", "HCLTECH.NS", "MARUTI.NS", "SUNPHARMA.NS",
+                "TATAMOTORS.NS", "KOTAKBANK.NS", "NTPC.NS", "ONGC.NS", "TITAN.NS"]
 
 # ==================== ਇੰਡੀਕੇਟਰਜ਼ ====================
-def calc_ema(prices, period):
-    if len(prices) < period: return 0
-    k = 2.0 / (period + 1)
-    ema = sum(prices[:period]) / period
-    for p in prices[period:]:
-        ema = p * k + ema * (1 - k)
-    return ema
-
-def calc_rsi(prices, period=14):
-    if len(prices) < period + 1: return 50
-    gains, losses = [], []
-    for i in range(1, len(prices)):
-        diff = prices[i] - prices[i-1]
-        gains.append(max(diff, 0)); losses.append(max(-diff, 0))
-    avg_gain = sum(gains[:period]) / period; avg_loss = sum(losses[:period]) / period
-    for i in range(period, len(gains)):
-        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
-        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
-    if avg_loss == 0: return 100
-    return 100 - (100 / (1 + (avg_gain / avg_loss)))
-
-# ==================== ਮੁੱਖ ਸਕੈਨਰ ====================
-def scan_market():
-    signals = []
-    print("ਮਾਰਕੀਟ ਸਕੈਨ ਕਰ ਰਹੇ ਹਾਂ... (ਇਸ ਵਿੱਚ ਕੁਝ ਸਮਾਂ ਲੱਗੇਗਾ)")
+def compute_indicators(df):
+    df["EMA_50"] = df["Close"].ewm(span=50, adjust=False).mean()
+    df["EMA_200"] = df["Close"].ewm(span=200, adjust=False).mean()
     
-    for ticker in NIFTY_50_TICKERS:
-        df = fetch_daily_data(ticker)
-        if df is None or len(df) < 50: 
+    df["High_20_Prior"] = df["High"].shift(1).rolling(window=20).max()
+    df["Low_10_Prior"] = df["Low"].shift(1).rolling(window=10).min()
+    df["Vol_SMA_20"] = df["Volume"].shift(1).rolling(window=20).mean()
+
+    prev_close = df["Close"].shift(1)
+    tr1 = df["High"] - df["Low"]
+    tr2 = (df["High"] - prev_close).abs()
+    tr3 = (df["Low"] - prev_close).abs()
+    df["TR"] = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    df["ATR_14"] = df["TR"].rolling(window=14).mean()
+
+    delta = df["Close"].diff()
+    gain = delta.clip(lower=0); loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(alpha=1/14, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1/14, adjust=False).mean()
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    df["RSI_14"] = 100 - (100 / (1 + rs))
+    return df
+
+# ==================== ਮਾਰਕੀਟ ਰਿਜੀਮ ====================
+def check_market_regime():
+    logger.info("Nifty Regime ਚੈੱਕ ਕਰ ਰਹੇ ਹਾਂ...")
+    nifty = yf.download("^NSEI", period="3y", interval="1d", progress=False)
+    if nifty.empty or len(nifty) < 200: return True, "ਡੇਟਾ ਨਹੀਂ ਮਿਲਿਆ"
+    
+    if isinstance(nifty.columns, pd.MultiIndex):
+        nifty.columns = nifty.columns.get_level_values(0)
+
+    nifty["EMA_200"] = nifty["Close"].ewm(span=200, adjust=False).mean()
+    latest = nifty.iloc[-1]
+    close, ema200 = float(latest["Close"]), float(latest["EMA_200"])
+    
+    if close > ema200:
+        return True, f"Nifty: {close:.1f} > 200 EMA: {ema200:.1f}"
+    else:
+        return False, f"⚠️ Nifty 200 EMA ਤੋਂ ਹੇਠਾਂ ਹੈ ({close:.1f} < {ema200:.1f})"
+
+# ==================== ਸਕੈਨਰ ====================
+def scan_market(tickers):
+    logger.info(f"{len(tickers)} ਸਟਾਕਸ ਦਾ ਡੇਟਾ ਲੈ ਰਹੇ ਹਾਂ...")
+    data = yf.download(tickers=tickers, period="3y", interval="1d", group_by="ticker", auto_adjust=False, threads=True, progress=False)
+    signals = []
+
+    for ticker in tickers:
+        try:
+            if ticker not in data.columns.levels[0]: continue
+            df = data[ticker].dropna(how="all").copy()
+            if len(df) < 250: continue
+
+            df = compute_indicators(df)
+            curr = df.iloc[-1]
+
+            # ਸਿਗਨਲ ਦੀਆਂ ਸ਼ਰਤਾਂ
+            trend_ok = (curr["Close"] > curr["EMA_50"]) and (curr["EMA_50"] > curr["EMA_200"])
+            rsi_ok = 60.0 <= curr["RSI_14"] <= 78.0
+            breakout_ok = curr["Close"] > curr["High_20_Prior"]
+            vol_ok = curr["Volume"] > (1.5 * curr["Vol_SMA_20"])
+            
+            day_range = curr["High"] - curr["Low"]
+            range_ok = ((curr["Close"] - curr["Low"]) / day_range) > 0.5 if day_range > 0 else False
+
+            if trend_ok and rsi_ok and breakout_ok and vol_ok and range_ok:
+                entry = float(curr["Close"])
+                atr = float(curr["ATR_14"])
+                swing_low = float(curr["Low_10_Prior"])
+                
+                # SL: ATR ਅਤੇ Support ਵਿੱਚੋਂ ਜੋ ਵੱਧ ਸੁਰੱਖਿਅਤ ਹੈ
+                atr_stop = entry - (2.0 * atr)
+                stop_loss = round(min(swing_low, atr_stop), 2)
+                
+                risk = entry - stop_loss
+                if risk <= 0: continue
+
+                # Position Sizing (₹50 ਰਿਸਕ ਲਈ)
+                qty = int(RISK_PER_TRADE / risk)
+                if qty == 0: continue # ਜੇਕਰ 1 ਸ਼ੇਅਰ ਵੀ ਰਿਸਕ ਤੋਂ ਵੱਧ ਹੈ ਤਾਂ ਛੱਡ ਦਿਓ
+
+                target_2r = round(entry + (2.0 * risk), 2)
+                target_3r = round(entry + (3.0 * risk), 2)
+
+                signals.append({
+                    "symbol": ticker.replace(".NS", ""), "entry": round(entry, 2),
+                    "sl": stop_loss, "risk": round(risk, 2), "qty": qty,
+                    "target_2r": target_2r, "target_3r": target_3r,
+                    "rsi": round(float(curr["RSI_14"]), 1)
+                })
+        except Exception as e:
             continue
-        
-        closes = df['close'].tolist()
-        current_close = closes[-1]
-        current_vol = df['volume'].iloc[-1]
-        
-        ema50 = calc_ema(closes, 50)
-        ema200 = calc_ema(closes, 200) if len(closes) >= 200 else 0
-        rsi = calc_rsi(closes, 14)
-        
-        # 20 ਦਿਨਾਂ ਦਾ ਹਾਈ
-        high_20 = df['high'].iloc[-21:-1].max()
-        avg_vol_20 = df['volume'].iloc[-21:-1].mean()
-        
-        # 🚀 ਸਿਗਨਲ ਦੀਆਂ ਸ਼ਰਤਾਂ (Breakout with Volume)
-        if current_close > ema50 and (ema200 == 0 or ema50 > ema200):
-            if rsi > 60:
-                if current_close > high_20 and current_vol > (1.5 * avg_vol_20):
-                    
-                    # ਰਿਸਕ ਮੈਨੇਜਮੈਂਟ (SL ਅਤੇ Target)
-                    entry = current_close
-                    sl = entry * 0.95 # 5% SL
-                    target = entry * 1.15 # 15% Target (1:3)
-                    
-                    signals.append({
-                        "ticker": ticker.replace(".NS", ""),
-                        "entry": round(entry, 2),
-                        "sl": round(sl, 2),
-                        "target": round(target, 2),
-                        "rsi": round(rsi, 1)
-                    })
-        
-        time.sleep(1) # Yahoo ਨੂੰ ਬਲਾਕ ਨਾ ਕਰਨ ਲਈ 1 ਸਕਿੰਟ ਦਾ ਸਮਾਂ
-        
     return signals
 
+# ==================== ਮੇਨ ====================
 def main():
-    signals = scan_market()
-    
-    if not signals:
-        print("ਅੱਜ ਕੋਈ ਵਧੀਆ ਬ੍ਰੇਕਆਉਟ ਨਹੀਂ ਮਿਲਿਆ।")
-        # send_telegram("📉 <b>Equity Scan:</b> ਅੱਜ ਕੋਈ ਵਧੀਆ ਸਵਿੰਗ ਸੈਟਅੱਪ ਨਹੀਂ ਮਿਲਿਆ।")
+    is_bull, regime_msg = check_market_regime()
+    if not is_bull:
+        send_telegram(f"⚠️ <b>LowriX Equity:</b> ਮਾਰਕੀਟ ਡਾਊਨ ਹੈ।\n{regime_msg}\nਅੱਜ ਕੋਈ ਟ੍ਰੇਡ ਨਹੀਂ ਲਵਾਂਗੇ।")
         return
 
-    # ਸਿਰਫ਼ ਟਾਪ 2 ਸਟਾਕਸ ਭੇਜੋ (ਜਿਹਨਾਂ ਦਾ RSI ਸਭ ਤੋਂ ਵੱਧ ਹੈ)
-    signals = sorted(signals, key=lambda x: x['rsi'], reverse=True)[:2]
+    tickers = get_nifty100_tickers()
+    signals = scan_market(tickers)
+
+    if not signals:
+        send_telegram(f"📊 <b>LowriX Equity:</b> ਮਾਰਕੀਟ ਠੀਕ ਹੈ ਪਰ ਅੱਜ ਕੋਈ ਵਧੀਆ ਬ੍ਰੇਕਆਉਟ ਨਹੀਂ ਮਿਲਿਆ।")
+        return
+
+    signals = sorted(signals, key=lambda x: x['rsi'], reverse=True)[:2] # ਟਾਪ 2
     
-    msg = "📈 <b>LowriX EQUITY SWING ALERTS</b>\n"
-    msg += "(2-3 ਮਹੀਨਿਆਂ ਲਈ ਸਵਿੰਗ ਟ੍ਰੇਡ)\n\n"
+    msg = "🚀 <b>LowriX SWING ALERTS (V1.3)</b>\n"
+    msg += f"💰 Capital: ₹{CAPITAL} | Max Risk: ₹{RISK_PER_TRADE}\n\n"
     
-    for sig in signals:
-        msg += f"🏢 <b>{sig['ticker']}</b>\n"
-        msg += f"🟢 Entry: ₹{sig['entry']}\n"
-        msg += f"🛑 SL: ₹{sig['sl']} (5%)\n"
-        msg += f"🎯 Target: ₹{sig['target']} (15%)\n"
-        msg += f"📊 RSI: {sig['rsi']}\n"
-        msg += f"🔗 <a href='https://www.screener.in/company/{sig['ticker']}/'>Fundamentals ਚੈੱਕ ਕਰੋ</a>\n\n"
+    for s in signals:
+        msg += f"📌 <b>{s['symbol']}</b>\n"
+        msg += f"🟢 Entry: ₹{s['entry']}\n"
+        msg += f"🛑 SL: ₹{s['sl']} (Risk: ₹{s['risk']}/share)\n"
+        msg += f"🎯 T1 (2R): ₹{s['target_2r']}\n"
+        msg += f"🎯 T2 (3R): ₹{s['target_3r']}\n"
+        msg += f"📦 Qty: <b>{s['qty']} shares</b> (Total Risk: ₹{s['qty']*s['risk']:.2f})\n"
+        msg += f"📊 RSI: {s['rsi']}\n"
+        msg += f"────────────────────\n"
         
-    msg += "<i>ਧਿਆਨ ਦਿਓ: ਇਹ ਸਿਰਫ਼ ਟੈਕਨੀਕਲ ਬ੍ਰੇਕਆਉਟ ਹੈ। ਖਰੀਦਣ ਤੋਂ ਪਹਿਲਾਂ ਫੰਡਾਮੈਂਟਲ ਜ਼ਰੂਰ ਚੈੱਕ ਕਰੋ।</i>"
     send_telegram(msg)
-    print("ਅਲਰਟ ਭੇਜ ਦਿੱਤਾ ਗਿਆ!")
+    logger.info("ਅਲਰਟ ਭੇਜ ਦਿੱਤਾ ਗਿਆ!")
 
 if __name__ == "__main__":
     main()
