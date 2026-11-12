@@ -29,4 +29,4 @@ jobs:
           CHAT_ID: ${{ secrets.CHAT_ID }}
           GIST_ID: ${{ secrets.GIST_ID }}
           GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
-       run: python -u equity_bot.py
+       run: python -u lowrix_equity_bot.py
