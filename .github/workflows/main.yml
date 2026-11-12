@@ -1,27 +1,23 @@
-name: Equity Swing Scanner
-
+name: LowriX Equity Scanner
 on:
   schedule:
     - cron: '30 10 * * 1-5' # ਰੋਜ਼ ਸ਼ਾਮ 4:00 ਵਜੇ IST
-  workflow_dispatch: # ਟੈਸਟ ਕਰਨ ਲਈ
+  workflow_dispatch:
 
 jobs:
   scan:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          
       - name: Install dependencies
-        run: pip install pandas numpy yfinance requests
-        
+        run: pip install yfinance pandas numpy requests
       - name: Run Scanner
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
           GIST_ID: ${{ secrets.GIST_ID }}
           GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
-        run: python equity_bot.py
+        run: python lowrix_equity.py
