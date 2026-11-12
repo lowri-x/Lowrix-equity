@@ -16,14 +16,14 @@ CHAT_ID = os.environ.get("CHAT_ID")
 GIST_ID = os.environ.get("GIST_ID")
 GIST_TOKEN = os.environ.get("GIST_TOKEN")
 
-# ==================== ਸੈਕਟਰ ਅਤੇ ਸਟਾਕਸ ====================
+# ==================== ਸੈਕਟਰ ਅਤੇ ਸਟਾਕਸ (ਗਲਤੀ ਵਾਲੇ ਸਟਾਕਸ ਬਦਲ ਦਿੱਤੇ ਹਨ) ====================
 SECTORS = {
-    "IT": ["TCS.NS", "INFY.NS", "WIPRO.NS", "HCLTECH.NS", "TECHM.NS", "LTIM.NS", "PERSISTENT.NS"],
+    "IT": ["TCS.NS", "INFY.NS", "WIPRO.NS", "HCLTECH.NS", "TECHM.NS", "MPHASIS.NS", "PERSISTENT.NS"],
     "Banking": ["HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS", "KOTAKBANK.NS", "AXISBANK.NS", "INDUSINDBK.NS", "BANKBARODA.NS"],
-    "Auto": ["TATAMOTORS.NS", "M&M.NS", "MARUTI.NS", "BAJAJ-AUTO.NS", "EICHERMOT.NS", "HEROMOTOCO.NS", "TVSMOTOR.NS"],
+    "Auto": ["TATAMOTORS.NS", "M&M.NS", "MARUTI.NS", "EICHERMOT.NS", "HEROMOTOCO.NS", "TVSMOTOR.NS", "ASHOKLEY.NS"],
     "Pharma": ["SUNPHARMA.NS", "DRREDDY.NS", "CIPLA.NS", "DIVISLAB.NS", "APOLLOHOSP.NS", "LUPIN.NS", "AUROPHARMA.NS"],
     "FMCG": ["ITC.NS", "HINDUNILVR.NS", "NESTLEIND.NS", "BRITANNIA.NS", "TATACONSUM.NS", "DABUR.NS", "MARICO.NS"],
-    "Metal": ["TATASTEEL.NS", "JSWSTEEL.NS", "HINDALCO.NS", "VEDL.NS", "JINDALSTEL.NS", "SAIL.NS", "NMDC.NS"],
+    "Metal": ["TATASTEEL.NS", "JSWSTEEL.NS", "HINDALCO.NS", "VEDL.NS", "JINDALSTEL.NS", "HINDZINC.NS", "NMDC.NS"],
     "Energy": ["RELIANCE.NS", "ONGC.NS", "NTPC.NS", "POWERGRID.NS", "BPCL.NS", "COALINDIA.NS", "IOC.NS"],
     "Finance": ["BAJFINANCE.NS", "BAJAJFINSV.NS", "JIOFIN.NS", "SHRIRAMFIN.NS", "CHOLAFIN.NS", "MUTHOOTFIN.NS"],
     "Infra": ["LT.NS", "ADANIPORTS.NS", "GMRINFRA.NS", "IRB.NS", "RVNL.NS", "IRCON.NS"],
@@ -42,6 +42,7 @@ def send_telegram(text):
     try: urllib.request.urlopen(req, context=ctx, timeout=10)
     except Exception as e: print(f"Telegram Error: {e}", flush=True)
 
+# ==================== GIST ਟ੍ਰੈਕਿੰਗ ====================
 def load_trades():
     if not GIST_ID or not GIST_TOKEN: return {"active": [], "history": []}
     headers = {"Authorization": f"token {GIST_TOKEN}"}
@@ -73,9 +74,11 @@ def get_news_headline(symbol):
     except: pass
     return "No recent news."
 
+# ==================== ਇੰਡੀਕੇਟਰਜ਼ & ਫੰਡਾਮੈਂਟਲ ====================
 def add_indicators(df):
     df = df.copy()
     close = df['Close']
+    
     df['ema50'] = close.ewm(span=50, adjust=False).mean()
     df['ema200'] = close.ewm(span=200, adjust=False).mean()
     
@@ -87,11 +90,11 @@ def add_indicators(df):
     
     df['vol_sma20'] = df['Volume'].rolling(20).mean()
     df['high_20'] = df['High'].shift(1).rolling(20).max()
+    
     return df
 
 def check_fundamentals(ticker_symbol):
     try:
-        # ਬੱਗ ਫਿਕਸ: ticker.info ਦੀ ਬਜਾਏ yf.Ticker().info ਵਰਤਿਆ
         info = yf.Ticker(ticker_symbol).info
         pe = info.get('forwardPE', 0)
         roe = info.get('returnOnEquity', 0) * 100 
@@ -101,6 +104,7 @@ def check_fundamentals(ticker_symbol):
     except: pass
     return False
 
+# ==================== ਟ੍ਰੇਡ ਚੈੱਕਿੰਗ ====================
 def check_active_trades(trades):
     if not trades["active"]: return trades
     remaining = []
@@ -108,11 +112,16 @@ def check_active_trades(trades):
     
     for t in trades["active"]:
         try:
-            # ਬੱਗ ਫਿਕਸ: ticker.history ਦੀ ਬਜਾਏ yf.download ਵਰਤਿਆ
             df = yf.download(t["symbol"] + ".NS", period="5d", progress=False)
-            if df.empty: 
+            
+            # ਗਲਤੀ ਸੁਧਾਰ: ਡੇਟਾ ਨੂੰ ਸਹੀ ਫਾਰਮੈਟ ਵਿੱਚ ਲਿਆਓ
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+                
+            if df.empty or len(df) < 1: 
                 remaining.append(t)
                 continue
+                
             high = float(df['High'].iloc[-1])
             low = float(df['Low'].iloc[-1])
             
@@ -125,7 +134,7 @@ def check_active_trades(trades):
                 t["exit_date"] = today_date
                 trades["history"].append(t)
                 emoji = "✅" if "TARGET" in status else "❌"
-                send_telegram(f"{emoji} <b>{t['symbol']} ਟ੍ਰੇਡ ਬੰਦ</b>\nਸਟੇਟਸ: {status}")
+                send_telegram(f"{emoji} <b>{t['symbol']} ਟ੍ਰੇਡ ਬੰਦ</b>\nਸਟੇਟਸ: {status}\nEntry: ₹{t['entry']} | Exit: ₹{t['target'] if 'TARGET' in status else t['sl']}")
             else:
                 remaining.append(t)
         except:
@@ -134,6 +143,7 @@ def check_active_trades(trades):
     trades["active"] = remaining
     return trades
 
+# ==================== ਮੁੱਖ ਸਕੈਨਰ ====================
 def main():
     trades = load_trades()
     trades = check_active_trades(trades)
@@ -144,30 +154,40 @@ def main():
     for sector_name, tickers in SECTORS.items():
         for ticker_symbol in tickers:
             try:
-                # ਬੱਗ ਫਿਕਸ: ticker.history ਦੀ ਬਜਾਏ yf.download ਵਰਤਿਆ
                 df = yf.download(ticker_symbol, period="1y", interval="1d", progress=False)
                 
+                # ਗਲਤੀ ਸੁਧਾਰ: ਡੇਟਾ ਫਾਰਮੈਟ ਠੀਕ ਕਰੋ
+                if isinstance(df.columns, pd.MultiIndex):
+                    df.columns = df.columns.get_level_values(0)
+                    
                 if df.empty or len(df) < 50: continue
+                
                 df = add_indicators(df)
                 curr = df.iloc[-1]
                 
-                tech_ok = (curr['Close'] > curr['ema50'] and curr['ema50'] > curr['ema200'] and 
-                           55 <= curr['rsi'] <= 75 and curr['Close'] > curr['high_20'] and 
-                           curr['Volume'] > 1.5 * curr['vol_sma20'])
+                # ਗਲਤੀ ਸੁਧਾਰ: float ਵੈਲਿਊਜ਼ ਸਿੱਧੀਆਂ ਕੱਢੋ
+                tech_ok = (float(curr['Close']) > float(curr['ema50']) and 
+                           float(curr['ema50']) > float(curr['ema200']) and 
+                           55 <= float(curr['rsi']) <= 75 and 
+                           float(curr['Close']) > float(curr['high_20']) and 
+                           float(curr['Volume']) > 1.5 * float(curr['vol_sma20']))
                 
                 if tech_ok and check_fundamentals(ticker_symbol):
                     news = get_news_headline(ticker_symbol)
                     all_signals.append({
-                        'sector': sector_name, 'symbol': ticker_symbol.replace('.NS', ''),
+                        'sector': sector_name, 
+                        'symbol': ticker_symbol.replace('.NS', ''),
                         'entry': round(float(curr['Close']), 2),
                         'sl': round(float(curr['Close']) * 0.95, 2),
                         'target': round(float(curr['Close']) * 1.15, 2),
                         'rsi': round(float(curr['rsi']), 1),
-                        'volume_surge': round(float(curr['Volume'] / curr['vol_sma20']), 1),
+                        'volume_surge': round(float(curr['Volume']) / float(curr['vol_sma20']), 1),
                         'news': news
                     })
                 time.sleep(0.5)
-            except: continue
+            except Exception as e: 
+                # ਜੇਕਰ ਕੋਈ ਸਟਾਕ ਨਾ ਮਿਲੇ ਤਾਂ ਚੁੱਪਚਾਪ ਛੱਡ ਦਿਓ
+                continue
 
     all_signals.sort(key=lambda x: x['volume_surge'], reverse=True)
     top_2 = all_signals[:2]
@@ -195,6 +215,7 @@ def main():
     else:
         print("ਕੋਈ ਸਿਗਨਲ ਨਹੀਂ ਮਿਲਿਆ।")
 
+    # ਡੇਲੀ ਰਿਪੋਰਟ
     total_closed = len(trades["history"])
     if total_closed > 0:
         wins = sum(1 for t in trades["history"] if "TARGET" in t["status"])
