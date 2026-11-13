@@ -1,31 +1,26 @@
 name: LowriX Equity Scanner
-
 on:
   schedule:
-    - cron: '30 10 * * 1-5'
+    # 🚀 4:00 ਤੋਂ 5:00 ਵਜੇ ਤੱਕ ਹਰ 15 ਮਿੰਟ ਬਾਅਦ (ਤਾਂਕਿ ਗਿਟਹੱਬ ਦੀ ਭੀੜ ਤੋਂ ਬਚੀਏ)
+    - cron: '0,15,30,45 10 * * 1-5' 
   workflow_dispatch:
 
 jobs:
   scan:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-        
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          
-      - name: Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install --upgrade yfinance pandas numpy requests
-          
+      - name: Install dependencies
+        run: pip install yfinance pandas numpy requests
       - name: Run Equity Scanner
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
           GIST_ID: ${{ secrets.GIST_ID }}
           GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
-        run: python -u lowrix_equity_bot.py
+        run: python -u equity_bot.py
