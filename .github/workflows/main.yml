@@ -1,14 +1,19 @@
-name: LowriX Equity Scanner
+name: LowriX Intraday Scanner
+
 on:
   schedule:
-    # 🚀 4:00 ਤੋਂ 5:00 ਵਜੇ ਤੱਕ ਹਰ 15 ਮਿੰਟ ਬਾਅਦ (ਤਾਂਕਿ ਗਿਟਹੱਬ ਦੀ ਭੀੜ ਤੋਂ ਬਚੀਏ)
-    - cron: '0,15,30,45 10 * * 1-5' 
+    # 🚀 9:00 AM IST = 3:30 AM UTC
+    - cron: '30 3 * * 1-5'
   workflow_dispatch:
+
+concurrency:
+  group: lowrix-intraday-group
+  cancel-in-progress: false
 
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 360 # 6 ਘੰਟੇ ਦੀ ਸੀਮਾ
 
     steps:
       - uses: actions/checkout@v4
@@ -16,8 +21,9 @@ jobs:
         with:
           python-version: '3.10'
       - name: Install dependencies
-        run: pip install yfinance pandas numpy requests
-      - name: Run Equity Scanner
+        run: |
+          pip install yfinance pandas numpy requests
+      - name: Run Intraday Scanner
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
