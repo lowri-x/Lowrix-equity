@@ -15,12 +15,18 @@ CHAT_ID = os.environ.get("CHAT_ID")
 GIST_ID = os.environ.get("GIST_ID")
 GIST_TOKEN = os.environ.get("GIST_TOKEN")
 
-# ਟਾਪ 20 ਸਭ ਤੋਂ ਵੱਧ ਲਿਕੁਡ ਸਟਾਕਸ (ਇੰਟਰਾਡੇ ਲਈ)
+# 🚀 Nifty 50 ਦੇ ਸਾਰੇ ਟਾਪ ਸਟਾਕਸ (50 ਸਟਾਕਸ)
 WATCHLIST = [
     "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "ICICIBANK.NS", "INFY.NS", 
     "SBIN.NS", "TATAMOTORS.NS", "TATASTEEL.NS", "M&M.NS", "MARUTI.NS",
     "AXISBANK.NS", "KOTAKBANK.NS", "BHARTIARTL.NS", "ITC.NS", "LT.NS",
-    "SUNPHARMA.NS", "NTPC.NS", "POWERGRID.NS", "TITAN.NS", "BAJFINANCE.NS"
+    "SUNPHARMA.NS", "NTPC.NS", "POWERGRID.NS", "TITAN.NS", "BAJFINANCE.NS",
+    "ASIANPAINT.NS", "HINDUNILVR.NS", "ULTRACEMCO.NS", "WIPRO.NS", "HCLTECH.NS",
+    "TECHM.NS", "ADANIENT.NS", "ADANIPORTS.NS", "COALINDIA.NS", "ONGC.NS",
+    "BPCL.NS", "GRASIM.NS", "JSWSTEEL.NS", "HINDALCO.NS", "DRREDDY.NS",
+    "CIPLA.NS", "DIVISLAB.NS", "NESTLEIND.NS", "BRITANNIA.NS", "EICHERMOT.NS",
+    "HEROMOTOCO.NS", "BAJAJ-AUTO.NS", "INDUSINDBK.NS", "APOLLOHOSP.NS", "TATACONSUM.NS",
+    "BAJAJFINSV.NS", "SHRIRAMFIN.NS", "LTIM.NS", "BEL.NS", "TRENT.NS"
 ]
 
 def get_ist_time():
@@ -51,7 +57,6 @@ def save_trades(trades):
     headers = {"Authorization": f"token {GIST_TOKEN}"}
     payload = {"files": {"intraday_trades.json": {"content": json.dumps(trades, indent=4)}}}
     
-    # 🚀 ਰੀਟ੍ਰਾਈ ਲਾਜਿਕ
     for attempt in range(5):
         try:
             r = requests.patch(f"https://api.github.com/gists/{GIST_ID}", headers=headers, json=payload, timeout=20)
@@ -136,7 +141,7 @@ def main():
         send_telegram("⏰ <b>LowriX Intraday:</b> ਮਾਰਕੀਟ ਬੰਦ ਹੋ ਗਈ ਹੈ। ਕੱਲ੍ਹ ਸਵੇਰੇ ਦੁਬਾਰਾ ਮਿਲਦੇ ਹਾਂ।")
         return
 
-    send_telegram("✅ <b>LowriX Intraday Bot ਚਾਲੂ ਹੋ ਗਿਆ ਹੈ</b>\nਅਸੀਂ 9:30 ਤੋਂ ਬਾਅਦ ਸਿਗਨਲ ਦੇਵਾਂਗੇ।")
+    send_telegram(f"✅ <b>LowriX Intraday Bot ਚਾਲੂ ਹੋ ਗਿਆ ਹੈ</b>\nਅਸੀਂ {len(WATCHLIST)} ਸਟਾਕਸ ਸਕੈਨ ਕਰਾਂਗੇ।\n9:30 ਤੋਂ ਬਾਅਦ ਸਿਗਨਲ ਦੇਵਾਂਗੇ।")
     
     trades = load_trades()
     signals_found = False
@@ -163,6 +168,9 @@ def main():
             
             df_5m = fetch_data(ticker, "5m")
             df_15m = fetch_data(ticker, "15m")
+            
+            # 🚀 Yahoo ਬਲਾਕ ਨਾ ਕਰੇ, ਇਸ ਲਈ 0.5 ਸਕਿੰਟ ਦਾ ਸਮਾਂ
+            time.sleep(0.5)
             
             if df_5m is None or df_15m is None or len(df_5m) < 20: continue
             
