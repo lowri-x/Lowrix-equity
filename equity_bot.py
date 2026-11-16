@@ -50,8 +50,21 @@ def save_trades(trades):
     if not GIST_ID or not GIST_TOKEN: return
     headers = {"Authorization": f"token {GIST_TOKEN}"}
     payload = {"files": {"intraday_trades.json": {"content": json.dumps(trades, indent=4)}}}
-    try: requests.patch(f"https://api.github.com/gists/{GIST_ID}", headers=headers, json=payload)
-    except: pass
+    
+    # 🚀 ਰੀਟ੍ਰਾਈ ਲਾਜਿਕ
+    for attempt in range(5):
+        try:
+            r = requests.patch(f"https://api.github.com/gists/{GIST_ID}", headers=headers, json=payload, timeout=20)
+            r.raise_for_status()
+            break
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 409:
+                wait_time = 2 ** (attempt + 1)
+                print(f"Gist conflict (409). Retrying in {wait_time}s...", flush=True)
+                time.sleep(wait_time)
+            else:
+                print(f"Gist save error: {e}", flush=True)
+                break
 
 # ==================== ਡੇਟਾ ਫੈਚਿੰਗ ====================
 def fetch_data(ticker, interval="5m"):
