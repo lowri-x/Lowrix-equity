@@ -57,6 +57,7 @@ def save_trades(trades):
     headers = {"Authorization": f"token {GIST_TOKEN}"}
     payload = {"files": {"intraday_trades.json": {"content": json.dumps(trades, indent=4)}}}
     
+    # 🚀 ਰੀਟ੍ਰਾਈ ਲਾਜਿਕ (409 Conflict ਤੋਂ ਬਚਣ ਲਈ)
     for attempt in range(5):
         try:
             r = requests.patch(f"https://api.github.com/gists/{GIST_ID}", headers=headers, json=payload, timeout=20)
@@ -146,14 +147,16 @@ def main():
     trades = load_trades()
     signals_found = False
 
-    # 🚨 ਇੰਟਰਾਡੇ ਲੂਪ
+    # 🚨 ਇੰਟਰਾਡੇ ਲੂਪ (9:30 AM ਤੋਂ 2:55 PM)
     while True:
         now = get_ist_time()
         
+        # 2:55 PM ਤੋਂ ਬਾਅਦ ਲੂਪ ਬੰਦ
         if now.hour >= 15 or (now.hour == 14 and now.minute >= 55):
             print("ਇੰਟਰਾਡੇ ਸੈਸ਼ਨ ਖਤਮ ਹੋ ਗਿਆ (2:55 PM)।")
             break
             
+        # 9:30 ਤੋਂ ਪਹਿਲਾਂ ਇੰਤਜ਼ਾਰ
         if now.hour == 9 and now.minute < 30:
             print("9:30 AM ਤੱਕ ਇੰਤਜ਼ਾਰ...")
             time.sleep(60)
@@ -161,16 +164,18 @@ def main():
             
         print(f"[{now.strftime('%H:%M')}] ਸਕੈਨ ਕਰ ਰਹੇ ਹਾਂ...")
         
+        # ਚੱਲ ਰਹੇ ਟ੍ਰੇਡ ਚੈੱਕ ਕਰੋ
         trades = check_trades(trades)
         
+        # ਨਵੇਂ ਸਿਗਨਲ ਲੱਭੋ
         for ticker in WATCHLIST:
             if any(t["symbol"] == ticker for t in trades["active"]): continue
             
             df_5m = fetch_data(ticker, "5m")
             df_15m = fetch_data(ticker, "15m")
             
-            # 🚀 Yahoo ਬਲਾਕ ਨਾ ਕਰੇ, ਇਸ ਲਈ 0.5 ਸਕਿੰਟ ਦਾ ਸਮਾਂ
-            time.sleep(0.5)
+            # 🚀 Yahoo ਬਲਾਕ ਨਾ ਕਰੇ, ਇਸ ਲਈ 1.0 ਸਕਿੰਟ ਦਾ ਸਮਾਂ
+            time.sleep(1.0) 
             
             if df_5m is None or df_15m is None or len(df_5m) < 20: continue
             
@@ -204,6 +209,7 @@ def main():
         save_trades(trades)
         time.sleep(300) # 5 ਮਿੰਟ ਦੀ ਉਡੀਕ
 
+    # ਜੇਕਰ ਦਿਨ ਖਤਮ ਹੋਣ ਤੱਕ ਕੋਈ ਸਿਗਨਲ ਨਾ ਮਿਲੇ
     if not signals_found:
         send_telegram("📊 <b>LowriX Intraday:</b> ਅੱਜ ਦਿਨ ਭਰ ਸਕੈਨ ਕੀਤਾ, ਪਰ ਕੋਈ ਵੀ ਸਟਾਕ ਸਾਡੀਆਂ ਸ਼ਰਤਾਂ (VWAP, RSI, Trend) 'ਤੇ ਖਰਾ ਨਹੀਂ ਉਤਰਿਆ।")
 
